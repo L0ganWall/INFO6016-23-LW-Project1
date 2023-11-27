@@ -6,6 +6,12 @@ Buffer::Buffer(uint32 size) {
 	m_ReadIndex = 0;
 }
 
+Buffer::Buffer() {
+	m_BufferData.resize(512);
+	m_WriteIndex = 0;
+	m_ReadIndex = 0;
+}
+
 Buffer::~Buffer() {}
 
 //void Buffer::WriteUInt32LE(size_t index, uint32 value) {

@@ -1,17 +1,17 @@
 #pragma once
 #include "c_helpers.h"
+#include <ctime>
 
 int main(int arg, char** argv)
 {
 	//Create a variable to store this client's name
-	std::string clientName;
+	std::string clientName = "temp";
+	srand(time(0));
+	int clientId = rand();
 
 	//creating a room vector, it stores the messages of each room that this client is in, since this client joined the room
 	std::vector<cRoom*> rooms;
 
-	//Get the user to enter the client's name
-	std::cout << "Please enter your name: ";
-	std::getline(std::cin, clientName);
 
 	// Initialize WinSock
 	WSADATA wsaData;
@@ -73,14 +73,68 @@ int main(int arg, char** argv)
 
 	Sleep(10);
 
+	printf("Enter the command: REGISTER your_email_here your_password_here to create a new account\n");
+	printf("Enter the command: AUTHENTICATE your_email_here your_password_here to login to an existing account\n");
+
 	Buffer newBuffer(512);
 
-	std::string chatRooms = c_helpers::ReadIncomingMessage(serverSocket, newBuffer, info);
+	std::string u_Input = "";
+	std::string chatRooms = "";
+	while (true) {
+		std::getline(std::cin, u_Input);
+		if (u_Input != "") {
+			std::string delimiter = " ";
+			std::string command = "";
+			std::string email = "";
+			std::string password = "";
+
+			int commandNum = 0;
+
+			int temp2 = u_Input.find_last_of(delimiter);
+			int temp = u_Input.find(delimiter);
+
+			command = u_Input.substr(0, temp);
+			email = u_Input.substr(temp, temp2 - temp);
+			password = u_Input.substr(temp2 + 1);
+
+			ChatMessage message;
+
+			if (command == "REGISTER") {
+				commandNum = 4;
+			}
+			else if (command == "AUTHENTICATE") {
+				commandNum = 5;
+			}
+			else {
+				continue;
+			}
+
+			std::string joinMessage = std::to_string(clientId) + ":" + u_Input;
+			message = c_helpers::CreateChatMessage(joinMessage, commandNum);
+			Buffer buffer = c_helpers::CreateBuffer(message);
+
+			result = send(serverSocket, (char*)(&buffer.m_BufferData[0]), message.header.packetSize, 0);
+			if (result == SOCKET_ERROR) {
+				printf("send failed with error %d\n", WSAGetLastError());
+				closesocket(serverSocket);
+				freeaddrinfo(info);
+				WSACleanup();
+				return 1;
+			}
+		}
+		chatRooms = c_helpers::ReadIncomingMessage(serverSocket, newBuffer, info);
+		std::string start = chatRooms.substr(0, '\n');
+		//the message back will always start with s if it succeded
+		if (chatRooms[0] == 's') {
+			break;
+		}
+	}
+
 
 	//a bool to keep track if a message should be sent
 	bool sendMsg = false;
 
-	std::string u_Input = "";
+
 	while (true) {
 		Buffer readBuffer(512);
 		std::string receviedMessage = c_helpers::ReadIncomingMessage(serverSocket, readBuffer, info);

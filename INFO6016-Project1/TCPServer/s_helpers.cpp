@@ -146,8 +146,106 @@ void s_helpers::SendErrorMessageToSender(const SOCKET& sender, ChatMessage error
 	}
 }
 
+std::string s_helpers::ReadIncomingMessage(SOCKET& serverSocket, Buffer& buffer, addrinfo* info, std::vector<sRoom*> rooms) {
+	//return string;
+	std::string msg;
+
+	int result = recv(serverSocket, (char*)&buffer.m_BufferData[0], 512, 0);
+	if (buffer.m_BufferData[0] != NULL) {
+		if (result == SOCKET_ERROR) {
+			//an error other than no data received has occured
+			if (WSAGetLastError() != 10035) {
+				printf("recv failed with error %d\n", WSAGetLastError());
+				closesocket(serverSocket);
+				freeaddrinfo(info);
+				WSACleanup();
+			}
+		}
+
+		//need to the request Id to send the message back to the sender
+		std::string temp;
+		int index = 0;
+		while (true) {
+			if (buffer.m_BufferData[index] != NULL || buffer.m_BufferData[index + 1] != NULL) {
+				temp.push_back(buffer.m_BufferData[index]);
+				std::cout << buffer.m_BufferData[index] << std::endl;
+			}
+			else {
+				break;
+			}
+			index++;
+		}
+		auth::AuthenticateWebSuccess authSuccess;
+		auth::AuthenticateWebFailure authFailure;
+		auth::CreateAccountWebFailure createFailure;
+		auth::CreateAccountWebSuccess createSuccess;
+		bool test = createFailure.ParseFromString(temp + '\0');
+		//finding out which type of message to send back to the client
+		long requestId = 0;
+		std::string successOrFailure = "";
+		std::string msg = "";
+		if (authSuccess.ParseFromString(temp)) {
+			successOrFailure = "success";
+			requestId = authSuccess.requestid();
+			 msg = successOrFailure + "\nChat Rooms: ";
+
+			for (int idx = 0; idx < rooms.size(); idx++) {
+				msg += (rooms[idx]->r_Name + ", ");
+			}
+		}
+		else if (authFailure.ParseFromString(temp)) {
+			successOrFailure = "Failure: ";
+			if (authFailure.failurereason() == 0) {
+				successOrFailure += "Invalid credentials";
+			}
+			else if (authFailure.failurereason() == 1) {
+				successOrFailure += "Internal server error";
+			}
+			requestId = authFailure.requestid();
+			msg = successOrFailure;
+		}
+		else if (createSuccess.ParseFromString(temp)) {
+			successOrFailure = "success";
+			requestId = createSuccess.requestid();
+			msg = successOrFailure + "\nChat Rooms: ";
+
+			for (int idx = 0; idx < rooms.size(); idx++) {
+				msg += (rooms[idx]->r_Name + ", ");
+			}
+		}
+		else if (test) {
+			successOrFailure = "Failure: ";
+			if (createFailure.failurereason() == 0) {
+				successOrFailure += "Account already exists";
+			}
+			else if (createFailure.failurereason() == 2) {
+				successOrFailure += "Internal server error";
+			}
+			requestId = createFailure.requestid();
+			msg = successOrFailure;
+		}
+		
+		ChatMessage c_msg = s_helpers::CreateChatMessage(msg, 1);
+		Buffer newBuffer = s_helpers::CreateBuffer(c_msg);
+
+		SOCKET tempSocket = rooms[0]->clientRequests[requestId];
+		int result = send(tempSocket, (char*)(&newBuffer.m_BufferData[0]), newBuffer.m_BufferData.size(), 0);
+		if (result == SOCKET_ERROR) {
+			printf("send failed with error %d\n", WSAGetLastError());
+			closesocket(rooms[0]->clientRequests[requestId]);
+			freeaddrinfo(info);
+			WSACleanup();
+		}
+		else {
+
+		}
+		return msg;
+	}
+	return "";
+}
+
 //helper function to handle the recieved messages and input
-void s_helpers::HandleClientInput(std::vector<sRoom*> rooms, Buffer& buffer, const SOCKET& sender, addrinfo* info) {
+void s_helpers::HandleClientInput(std::vector<sRoom*> rooms, Buffer& buffer, const SOCKET& sender, const SOCKET& auth, addrinfo* info) {
 
 	//using a namespace for this function
 	using namespace s_helpers;
@@ -245,6 +343,74 @@ void s_helpers::HandleClientInput(std::vector<sRoom*> rooms, Buffer& buffer, con
 			printf("Left room successfully");
 		}
 
+	}
+	else if (messageType == 4) {
+		uint32_t messageLength = buffer.ReadUInt32LE();
+		std::string msg = buffer.ReadString(messageLength);
+
+		std::string delimiter = ":";
+		std::string sClientId = msg.substr(0, msg.find(delimiter));
+		int clientId = std::stoi(sClientId);
+		delimiter = " ";
+
+		if (rooms[0]->clientRequests.find(clientId) == rooms[0]->clientRequests.end()) {
+			rooms[0]->clientRequests.insert({ clientId, sender });
+		}
+
+		auth::CreateAccountWeb new_account;
+		new_account.set_requestid(clientId);
+		new_account.set_email(msg.substr(msg.find(delimiter), msg.find_last_of(delimiter) - msg.find(delimiter)));
+		new_account.set_plaintextpassword(msg.substr(msg.find_last_of(delimiter) + 1));
+
+		std::cout << "Data received: " << new_account.requestid() << " " << new_account.email() << " " << new_account.plaintextpassword() << std::endl;
+
+		std::string serializedAuthMessage;
+		new_account.SerializeToString(&serializedAuthMessage);
+
+		Buffer sendBuffer;
+
+		for (int i = 0; i < serializedAuthMessage.size(); i++) {
+			sendBuffer.m_BufferData[i] = serializedAuthMessage[i];
+		}
+
+		int result = send(auth, (char*)(&sendBuffer.m_BufferData[0]), serializedAuthMessage.length(), 0);
+		if (result == SOCKET_ERROR) {
+			printf("send failed with error %d\n", WSAGetLastError());
+			closesocket(sender);
+			freeaddrinfo(info);
+			WSACleanup();
+		}
+	}
+	else if (messageType == 5) {
+		uint32_t messageLength = buffer.ReadUInt32LE();
+		std::string msg = buffer.ReadString(messageLength);
+
+		std::string delimiter = ":";
+		int clientId = std::stoi(msg.substr(0, msg.find(delimiter)));
+		delimiter = " ";
+
+		if (rooms[0]->clientRequests.find(clientId) == rooms[0]->clientRequests.end()) {
+			rooms[0]->clientRequests.insert({ clientId, sender });
+		}
+
+		auth::AuthenticateWeb login;
+		login.set_requestid(clientId);
+		login.set_email(msg.substr(msg.find(delimiter), msg.find_last_of(delimiter) - msg.find(delimiter)));
+		login.set_plaintextpassword(msg.substr(msg.find_last_of(delimiter) + 1));
+
+		std::cout << "Data received: " << login.requestid() << " " << login.email() << " " << login.plaintextpassword() << std::endl;
+
+		std::string serializedAuthMessage;
+		login.SerializeToString(&serializedAuthMessage);
+
+
+		int result = send(auth, serializedAuthMessage.c_str(), serializedAuthMessage.length(), 0);
+		if (result == SOCKET_ERROR) {
+			printf("send failed with error %d\n", WSAGetLastError());
+			closesocket(sender);
+			freeaddrinfo(info);
+			WSACleanup();
+		}
 	}
 }
 

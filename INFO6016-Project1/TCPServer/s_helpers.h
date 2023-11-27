@@ -11,19 +11,24 @@
 
 #include "buffer.h"
 
+#include "../gen/authentication.pb.h"
+
 // Need to link Ws2_32.lib
 #pragma comment(lib, "Ws2_32.lib")
 
 // First, make it work (messy), then organize
 
 #define DEFAULT_PORT "8412"
+#define AUTH_PORT "8413"
 
 //struct to handle the rooms
 struct sRoom {
 	std::vector<SOCKET> r_ClientList;
 	std::string r_Name;
+	std::map<int, SOCKET> clientRequests;
 };
 namespace s_helpers {
+
 	//checks to ensure the sender is in the room before allowing them to send a message to it
 	bool IsSenderInTheRoom(std::vector<sRoom*> rooms, const SOCKET& sender, int index);
 
@@ -54,8 +59,11 @@ namespace s_helpers {
 	//sends an error message to the sender
 	void SendErrorMessageToSender(const SOCKET& sender, ChatMessage errorMessage, addrinfo* info);
 
+	//read message from auth server
+	std::string ReadIncomingMessage(SOCKET& serverSocket, Buffer& buffer, addrinfo* info, std::vector<sRoom*> rooms);
+
 	//this function handles all the client input and determines what to do with it
-	void HandleClientInput(std::vector<sRoom*> rooms, Buffer& buffer, const SOCKET& sender, addrinfo* info);
+	void HandleClientInput(std::vector<sRoom*> rooms, Buffer& buffer, const SOCKET& sender, const SOCKET& auth, addrinfo* info);
 
 	//closes all client sockets
 	void CloseClientSockets(std::vector<SOCKET>& client, addrinfo* info);

@@ -5,6 +5,7 @@ class Buffer
 {
 public:
 	Buffer(uint32 size);
+	Buffer();
 	~Buffer();
 
 	//void WriteUInt32LE(size_t index, uint32 value);

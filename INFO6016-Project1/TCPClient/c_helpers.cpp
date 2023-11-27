@@ -1,4 +1,5 @@
 #include "c_helpers.h"
+
 ChatMessage c_helpers::CreateChatMessage(std::string s_Message, int messageType) {
 	ChatMessage message;
 	message.message = s_Message;
@@ -44,6 +45,7 @@ std::string c_helpers::ReadIncomingMessage(SOCKET& serverSocket, Buffer& buffer,
 		}
 	}
 	else if (result > 0) {
+		std::cout << "Message Recieved" << std::endl;
 		uint32_t packetSize = buffer.ReadUInt32LE();
 		uint32_t messageType = buffer.ReadUInt32LE();
 

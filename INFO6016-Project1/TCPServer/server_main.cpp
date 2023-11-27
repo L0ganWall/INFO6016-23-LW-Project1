@@ -87,6 +87,56 @@ int main(int arg, char** argv)
 		return 1;
 	}
 	printf("listen successful\n");
+	
+	//auth client stuff
+
+	struct addrinfo* authInfo = nullptr;
+	struct addrinfo authHints;
+	ZeroMemory(&authHints, sizeof(authHints));	// ensure we don't have garbage data 
+	authHints.ai_family = AF_INET;			// IPv4
+	authHints.ai_socktype = SOCK_STREAM;	// Stream
+	authHints.ai_protocol = IPPROTO_TCP;	// TCP
+	authHints.ai_flags = AI_PASSIVE;
+
+
+	result = getaddrinfo("127.0.0.1", AUTH_PORT, &authHints, &authInfo);
+	if (result != 0) {
+		printf("getaddrinfo failed with error %d\n", result);
+		WSACleanup();
+		return 1;
+	}
+	printf("getaddrinfo successfully!\n");
+
+	// Socket
+	SOCKET serverSocket = socket(authInfo->ai_family, authInfo->ai_socktype, authInfo->ai_protocol);
+	if (serverSocket == INVALID_SOCKET) {
+		printf("socket failed with error %d\n", WSAGetLastError());
+		freeaddrinfo(authInfo);
+		WSACleanup();
+		return 1;
+	}
+	printf("socket created successfully!\n");
+
+	//setting the socket as non-blocking
+	u_long iMode = 1;
+
+	result = ioctlsocket(serverSocket, FIONBIO, &iMode);
+	if (result != NOERROR) {
+		printf("ioctlsocket failed with error: %ld\n", result);
+	}
+
+	// Connect
+	result = connect(serverSocket, authInfo->ai_addr, (int)authInfo->ai_addrlen);
+	if (serverSocket == INVALID_SOCKET) {
+		printf("connect failed with error %d\n", WSAGetLastError());
+		closesocket(serverSocket);
+		freeaddrinfo(authInfo);
+		WSACleanup();
+		return 1;
+	}
+	printf("Connect to the server successfully!\n");
+
+	Sleep(10);
 
 
 	std::vector<SOCKET> activeConnections;
@@ -112,6 +162,9 @@ int main(int arg, char** argv)
 		if (s_Input == "shutdown") {
 			break;
 		}
+
+		Buffer gBuffer;
+		std::string receviedMessage = s_helpers::ReadIncomingMessage(serverSocket, gBuffer, authInfo, Rooms);
 		
 		// Reset the socketsReadyForReading
 		FD_ZERO(&socketsReadyForReading);
@@ -133,7 +186,7 @@ int main(int arg, char** argv)
 		if (count == 0)
 		{
 			// Timevalue expired
-			continue;
+			//continue;
 		}
 		if (count == SOCKET_ERROR)
 		{
@@ -171,7 +224,7 @@ int main(int arg, char** argv)
 				//printf("Received %d bytes from the client!\n", result);
 
 			
-				s_helpers::HandleClientInput(Rooms, buffer, socket, info);
+				s_helpers::HandleClientInput(Rooms, buffer, socket, serverSocket, info);
 
 				//// https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-send
 				//result = send(socket, buffer, 512, 0);
@@ -227,22 +280,6 @@ int main(int arg, char** argv)
 					//set the atLeastOneConnectionBool to true
 					atLeastOneConnection = false;
 
-					std::string msg = "Chat Rooms: ";
-
-					for (int idx = 0; idx < Rooms.size(); idx++) {
-						msg += (Rooms[idx]->r_Name + ", ");
-					}
-
-					ChatMessage c_msg = s_helpers::CreateChatMessage(msg, 1);
-					Buffer newBuffer = s_helpers::CreateBuffer(c_msg);
-
-					int result = send(newConnection, (const char*)(&newBuffer.m_BufferData[0]), c_msg.header.packetSize, 0);
-					if (result == SOCKET_ERROR) {
-						printf("send failed with error %d\n", WSAGetLastError());
-						closesocket(newConnection);
-						freeaddrinfo(info);
-						WSACleanup();
-					}
 				}
 			}
 		}
